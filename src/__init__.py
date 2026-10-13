@@ -1,0 +1,2 @@
+"""IndicSent-M package."""
+
