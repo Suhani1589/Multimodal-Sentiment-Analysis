@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, Optional
+
 import torch
 from torch import nn
 
@@ -7,11 +9,24 @@ from torch import nn
 class TransformerTextEncoder(nn.Module):
     """Pooled multilingual Transformer encoder."""
 
-    def __init__(self, model_name: str, freeze_encoder: bool = False) -> None:
+    def __init__(
+        self,
+        model_name: str,
+        freeze_encoder: bool = False,
+        pretrained: bool = True,
+        model_config: Optional[dict[str, Any]] = None,
+    ) -> None:
         super().__init__()
-        from transformers import AutoModel
+        from transformers import AutoConfig, AutoModel
 
-        self.encoder = AutoModel.from_pretrained(model_name)
+        if pretrained:
+            self.encoder = AutoModel.from_pretrained(model_name)
+        elif model_config:
+            config_values = dict(model_config)
+            model_type = config_values.pop("model_type")
+            self.encoder = AutoModel.from_config(AutoConfig.for_model(model_type, **config_values))
+        else:
+            self.encoder = AutoModel.from_config(AutoConfig.from_pretrained(model_name))
         self.hidden_size = int(self.encoder.config.hidden_size)
         if freeze_encoder:
             for parameter in self.encoder.parameters():

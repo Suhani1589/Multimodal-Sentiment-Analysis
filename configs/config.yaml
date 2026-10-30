@@ -53,8 +53,14 @@ training:
   image_learning_rate: 0.0001
   weight_decay: 0.01
   early_stopping_patience: 2
-  use_class_weights: true
+  use_class_weights: false
+  imbalance_strategy: weighted_sampler
   mixed_precision: false
+  scheduler:
+    enabled: true
+    factor: 0.5
+    patience: 1
+    min_lr: 0.0000001
 
 paths:
   checkpoints_dir: checkpoints

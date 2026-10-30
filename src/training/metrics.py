@@ -12,15 +12,29 @@ def compute_classification_metrics(y_true: list[int], y_pred: list[int], labels:
         y_true, y_pred, average="macro", zero_division=0
     )
     _, _, f1_weighted, _ = precision_recall_fscore_support(y_true, y_pred, average="weighted", zero_division=0)
-    report = classification_report(y_true, y_pred, target_names=labels, zero_division=0, output_dict=True)
+    label_ids = list(range(len(labels)))
+    report = classification_report(
+        y_true,
+        y_pred,
+        labels=label_ids,
+        target_names=labels,
+        zero_division=0,
+        output_dict=True,
+    )
     return {
         "accuracy": float(accuracy_score(y_true, y_pred)),
         "precision_macro": float(precision_macro),
         "recall_macro": float(recall_macro),
         "f1_macro": float(f1_macro),
         "f1_weighted": float(f1_weighted),
-        "confusion_matrix": confusion_matrix(y_true, y_pred, labels=list(range(len(labels)))).astype(int).tolist(),
+        "confusion_matrix": confusion_matrix(y_true, y_pred, labels=label_ids).astype(int).tolist(),
         "per_class": report,
+        "true_class_distribution": {
+            label: int(sum(value == index for value in y_true)) for index, label in enumerate(labels)
+        },
+        "predicted_class_distribution": {
+            label: int(sum(value == index for value in y_pred)) for index, label in enumerate(labels)
+        },
     }
 
 

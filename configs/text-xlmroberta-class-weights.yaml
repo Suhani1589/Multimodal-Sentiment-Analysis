@@ -1,0 +1,71 @@
+project:
+  name: IndicSent-M
+  seed: 42
+  device: auto
+dataset:
+  raw_dir: data/raw
+  processed_dir: data/processed
+  images_dir: data/raw/memotion_dataset_7k/images
+  metadata_csv: data/raw/metadata.csv
+  memotion_dir: data/raw/memotion_dataset_7k
+  memotion_annotations: data/raw/memotion_dataset_7k/labels.csv
+  memotion_image_prefix: memotion_dataset_7k/images
+  prepared_csv: data/processed/splits.csv
+  required_columns:
+  - sample_id
+  - image_path
+  - text
+  - language
+  - sentiment
+  label_order:
+  - positive
+  - neutral
+  - negative
+  train_size: 0.7
+  val_size: 0.15
+  test_size: 0.15
+  split_column: split
+  group_column: null
+preprocessing:
+  remove_urls: true
+  replace_usernames: true
+  lowercase: false
+  max_text_length: 128
+  image_size: 224
+text_model:
+  model_name: xlm-roberta-base
+  fallback_model_name: xlm-roberta-base
+  freeze_encoder: false
+  dropout: 0.2
+image_model:
+  backbone: resnet50
+  pretrained: true
+  freeze_encoder: false
+  dropout: 0.2
+multimodal_model:
+  fusion: concat
+  projection_dim: 256
+  hidden_dim: 256
+  dropout: 0.3
+training:
+  epochs: 3
+  batch_size: 2
+  num_workers: 0
+  learning_rate: 2.0e-05
+  image_learning_rate: 0.0001
+  weight_decay: 0.01
+  early_stopping_patience: 2
+  use_class_weights: false
+  imbalance_strategy: class_weights
+  mixed_precision: false
+  scheduler:
+    enabled: true
+    factor: 0.5
+    patience: 1
+    min_lr: 1.0e-07
+paths:
+  checkpoints_dir: checkpoints/text-xlmroberta-class-weights
+  metrics_dir: results/metrics
+  plots_dir: results/plots
+  predictions_dir: results/predictions
+  logs_dir: logs

@@ -9,6 +9,8 @@ venv/
 .vscode/
 .pytest_cache/
 data/
+results/
+checkpoints/
 *.pt
 *.pth
 *.ckpt
