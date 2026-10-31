@@ -26,6 +26,7 @@ def build_model(
             freeze_encoder=config["text_model"]["freeze_encoder"],
             pretrained=load_pretrained,
             encoder_config=text_encoder_config,
+            pooling=config["text_model"].get("pooling", "pooler"),
         )
     if model_type == "image":
         return ImageSentimentModel(
@@ -48,5 +49,6 @@ def build_model(
             dropout=config["multimodal_model"]["dropout"],
             freeze_text_encoder=config["text_model"]["freeze_encoder"],
             freeze_image_encoder=config["image_model"]["freeze_encoder"],
+            pooling=config["text_model"].get("pooling", "pooler"),
         )
     raise ValueError(f"Unknown model type: {model_type}")

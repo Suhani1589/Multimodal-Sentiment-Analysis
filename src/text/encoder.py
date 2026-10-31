@@ -5,6 +5,8 @@ from typing import Any, Optional
 import torch
 from torch import nn
 
+from src.training.frozen_probe import masked_mean_pool
+
 
 class TransformerTextEncoder(nn.Module):
     """Pooled multilingual Transformer encoder."""
@@ -15,10 +17,14 @@ class TransformerTextEncoder(nn.Module):
         freeze_encoder: bool = False,
         pretrained: bool = True,
         model_config: Optional[dict[str, Any]] = None,
+        pooling: str = "pooler",
     ) -> None:
         super().__init__()
         from transformers import AutoConfig, AutoModel
 
+        if pooling not in {"pooler", "masked_mean"}:
+            raise ValueError("text pooling must be pooler or masked_mean")
+        self.pooling = pooling
         if pretrained:
             self.encoder = AutoModel.from_pretrained(model_name)
         elif model_config:
@@ -34,6 +40,8 @@ class TransformerTextEncoder(nn.Module):
 
     def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         outputs = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
+        if self.pooling == "masked_mean":
+            return masked_mean_pool(outputs.last_hidden_state, attention_mask)
         if getattr(outputs, "pooler_output", None) is not None:
             return outputs.pooler_output
         mask = attention_mask.unsqueeze(-1).float()

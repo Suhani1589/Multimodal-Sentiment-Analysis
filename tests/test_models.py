@@ -50,3 +50,29 @@ def test_multimodal_model_output_shape() -> None:
         image=torch.randn(2, 3, 16, 16),
     )
     assert logits.shape == (2, 3)
+    assert model.pooling == "pooler"
+
+
+def test_multimodal_factory_passes_masked_mean_pooling(monkeypatch) -> None:
+    captured = {}
+
+    class CapturingMultimodal(nn.Module):
+        def __init__(self, *args, **kwargs):
+            super().__init__()
+            captured["kwargs"] = kwargs
+
+    monkeypatch.setattr("src.model_factory.MultimodalSentimentModel", CapturingMultimodal)
+    from src.model_factory import build_model
+
+    build_model(
+        "multimodal",
+        {
+            "dataset": {"label_order": ["positive", "neutral", "negative"]},
+            "text_model": {"model_name": "xlm-roberta-base", "freeze_encoder": False, "pooling": "masked_mean"},
+            "image_model": {"backbone": "resnet50", "pretrained": True, "freeze_encoder": False},
+            "multimodal_model": {"projection_dim": 256, "hidden_dim": 256, "dropout": 0.3},
+        },
+        load_pretrained=False,
+    )
+    assert captured["kwargs"]["pooling"] == "masked_mean"
+    assert captured["kwargs"]["pretrained_text"] is False

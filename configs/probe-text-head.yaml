@@ -1,0 +1,36 @@
+experiment: frozen-encoder-linear-probe
+seed: 42
+encoder:
+  model_name: xlm-roberta-base
+  source: pretrained
+  frozen: true
+  max_length: 128
+  extraction_batch_size: 16
+representation:
+  primary: pooler
+  fallback_if_primary_fails: masked_mean
+data:
+  prepared_csv: data/processed/splits.csv
+  raw_dir: data/raw
+  splits_used:
+  - train
+  - val
+  test_split_accessed: false
+  label_order:
+  - positive
+  - neutral
+  - negative
+training:
+  epochs: 40
+  batch_size: 128
+  learning_rate: 0.001
+  weight_decay: 0.0
+  imbalance_strategy: weighted_sampler
+  class_weighted_loss: false
+  early_stopping_patience: 8
+  selection_metric: validation_macro_f1
+  tie_break: earliest_epoch
+success_gate:
+  must_predict_all_classes: true
+  macro_f1_must_exceed_constant_positive_baseline: 0.24713682941531043
+output_dir: results/probe-frozen-xlmroberta-head

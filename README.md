@@ -129,6 +129,8 @@ The current saved results are not a matched full-data model comparison. Text was
 
 A later three-epoch full-split XLM-RoBERTa run is recorded under `checkpoints/text-xlmroberta/`. Its validation macro-F1 was 0.2471 at each epoch and it predicted positive for every validation row; strict macro-F1 checkpoint selection therefore retained epoch 1. Its validation set had 616 positive, 339 neutral, and 91 negative examples. This run has not been evaluated on the held-out test split, so it is not included in the test table below.
 
+The completed masked-mean differential-learning-rate run is under `checkpoints/text-xlmroberta-meanpool-difflr/`. It trained for 5 epochs (65.6 minutes of the training loop) on 4,896 train and 1,044 validation rows, with encoder learning rate `1e-5`, classification-head learning rate `1e-3`, a weighted training sampler, and unweighted cross-entropy. Before any update, the loaded probe reproduced validation macro-F1 0.3561. The selected checkpoint is epoch 4: validation accuracy 0.4454 and validation macro-F1 0.3426. That is above the constant-positive macro-F1 of 0.2471 and below the frozen masked-mean probe. Validation loss rose from 1.2075 to 2.3246 while training loss fell from 1.0829 to 0.5954. All three classes were predicted, and masked-mean feature variance on a fixed validation subset increased rather than collapsing. This run has not been evaluated on the held-out test split.
+
 | Run | Test accuracy | Macro precision | Macro recall | Macro-F1 | Weighted-F1 | Prediction behavior |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
 | Text, full split | 0.5969 | 0.1990 | 0.3333 | 0.2492 | 0.4463 | Positive for all 1,047 rows |

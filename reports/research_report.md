@@ -39,7 +39,7 @@ Training and validation histories plus run configuration snapshots live beside t
 
 Random seed 42 is configured. Training requests deterministic PyTorch algorithms where available. An exact repeat experiment has not been run, so run-to-run variance is unknown. The guarded data preparation command will not overwrite an existing split unless explicitly requested.
 
-The initial full-split text run used correctly ordered inverse-frequency cross-entropy weights of approximately `[0.560, 1.069, 3.603]` for positive, neutral, and negative. Those weights were derived from training counts and did not resolve minority-class collapse. The updated default training config uses a seeded weighted sampler on training examples instead of combining oversampling and weighted loss. This follow-up has not yet been trained or evaluated.
+The initial full-split text run used correctly ordered inverse-frequency cross-entropy weights of approximately `[0.560, 1.069, 3.603]` for positive, neutral, and negative. Those weights were derived from training counts and did not resolve minority-class collapse. A later weighted-sampler run without class weights is saved under `checkpoints/text-xlmroberta-balanced/` and also failed to produce a useful three-class validation result. The subsequent masked-mean run with separate encoder and head learning rates is saved under `checkpoints/text-xlmroberta-meanpool-difflr/`. Its best validation macro-F1 is 0.3426 at epoch 4, above the constant-positive score of 0.2471 and below the frozen masked-mean probe score of 0.3561. It has not been scored on the held-out test set.
 
 ## Limitations and next work
 

@@ -21,13 +21,16 @@ class TextSentimentModel(nn.Module):
         encoder_dim: Optional[int] = None,
         pretrained: bool = True,
         encoder_config: Optional[dict[str, Any]] = None,
+        pooling: str = "pooler",
     ) -> None:
         super().__init__()
+        self.pooling = pooling
         self.encoder = encoder or TransformerTextEncoder(
             model_name,
             freeze_encoder=freeze_encoder,
             pretrained=pretrained,
             model_config=encoder_config,
+            pooling=pooling,
         )
         hidden_size = encoder_dim or getattr(self.encoder, "hidden_size")
         self.classifier = nn.Sequential(nn.Dropout(dropout), nn.Linear(hidden_size, num_classes))

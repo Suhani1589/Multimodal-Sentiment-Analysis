@@ -10,6 +10,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from src.training.frozen_probe import representation_separation
 from src.training.metrics import compute_classification_metrics
 
 
@@ -30,6 +31,8 @@ class Trainer:
         checkpoint_metadata: dict[str, Any] | None = None,
         scheduler: Optional[torch.optim.lr_scheduler.ReduceLROnPlateau] = None,
         overwrite: bool = False,
+        gradient_clip_norm: Optional[float] = None,
+        diversity_loader: Optional[DataLoader] = None,
     ) -> None:
         self.model = model.to(device)
         self.optimizer = optimizer
@@ -42,6 +45,8 @@ class Trainer:
         self.checkpoint_metadata = checkpoint_metadata or {}
         self.scheduler = scheduler
         self.overwrite = overwrite
+        self.gradient_clip_norm = None if gradient_clip_norm is None else float(gradient_clip_norm)
+        self.diversity_loader = diversity_loader
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     def _move_batch(self, batch: dict[str, Any]) -> dict[str, Any]:
@@ -63,6 +68,8 @@ class Trainer:
             groups["image_encoder"] = self.model.image_encoder
         elif self.model_name == "image" and hasattr(self.model, "encoder"):
             groups["image_encoder"] = self.model.encoder
+        if hasattr(self.model, "fusion"):
+            groups["fusion"] = self.model.fusion
         return groups
 
     def _snapshot_diagnostic_parameters(self, batch: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -111,9 +118,21 @@ class Trainer:
                 ),
                 "representative_parameter": snapshot["parameter_name"],
                 "representative_gradient_norm": float(probe.norm().item()) if probe is not None else None,
+                "group_gradient_norm": self._module_gradient_norm(module),
                 "_snapshot": snapshot,
             }
         return diagnostics
+
+    @staticmethod
+    def _module_gradient_norm(module: nn.Module) -> Optional[float]:
+        squares = [
+            parameter.grad.detach().float().pow(2).sum()
+            for parameter in module.parameters()
+            if parameter.requires_grad and parameter.grad is not None
+        ]
+        if not squares:
+            return None
+        return float(torch.stack(squares).sum().sqrt())
 
     @staticmethod
     def _finish_update_diagnostics(diagnostics: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -136,17 +155,35 @@ class Trainer:
         y_true: list[int] = []
         y_pred: list[int] = []
         gradient_diagnostics = None
+        norm_sums: dict[str, float] = {}
+        norm_steps: dict[str, int] = {}
         for batch in tqdm(loader, desc="train", leave=False):
             batch = self._move_batch(batch)
             snapshots = self._snapshot_diagnostic_parameters(batch) if total == 0 else None
             self.optimizer.zero_grad(set_to_none=True)
             loss, logits = self._forward_loss(batch)
             loss.backward()
+            for group_name, module in self._diagnostic_groups().items():
+                group_norm = self._module_gradient_norm(module)
+                if group_norm is None:
+                    continue
+                norm_sums[group_name] = norm_sums.get(group_name, 0.0) + group_norm
+                norm_steps[group_name] = norm_steps.get(group_name, 0) + 1
             if snapshots is not None:
                 gradient_diagnostics = self._gradient_diagnostics(snapshots)
+            clip_stats = None
+            if self.gradient_clip_norm is not None:
+                total_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip_norm)
+                if snapshots is not None:
+                    clip_stats = {
+                        "global_gradient_norm_before_clip": float(total_norm),
+                        "gradient_clip_norm": self.gradient_clip_norm,
+                    }
             self.optimizer.step()
             if snapshots is not None and gradient_diagnostics is not None:
                 gradient_diagnostics = self._finish_update_diagnostics(gradient_diagnostics)
+                if clip_stats is not None:
+                    gradient_diagnostics["gradient_clip"] = clip_stats
             total_loss += float(loss.item()) * len(batch["label"])
             predictions = logits.argmax(dim=-1)
             total += int(len(batch["label"]))
@@ -155,6 +192,9 @@ class Trainer:
         metrics = compute_classification_metrics(y_true, y_pred, self.labels)
         metrics["loss"] = total_loss / max(total, 1)
         metrics["gradient_diagnostics"] = gradient_diagnostics or {}
+        metrics["mean_gradient_norm"] = {
+            name: norm_sums[name] / norm_steps[name] for name in norm_sums if norm_steps.get(name)
+        }
         return metrics
 
     @torch.no_grad()
@@ -171,7 +211,38 @@ class Trainer:
             y_pred.extend(logits.argmax(dim=-1).detach().cpu().tolist())
         metrics = compute_classification_metrics(y_true, y_pred, self.labels)
         metrics["loss"] = total_loss / max(len(y_true), 1)
+        predicted = metrics.get("predicted_class_distribution") or {}
+        predicted_class_count = sum(1 for label in self.labels if int(predicted.get(label, 0)) > 0)
+        metrics["predicted_class_count"] = predicted_class_count
+        metrics["single_class_prediction_collapse"] = predicted_class_count <= 1
         return metrics
+
+    @torch.no_grad()
+    def representation_diversity(self) -> dict[str, Any]:
+        """Measure whether a fixed validation subset still produces varied encoder vectors."""
+        encoder = getattr(self.model, "text_encoder", None)
+        if encoder is None and hasattr(self.model, "encoder"):
+            encoder = self.model.encoder
+        if self.diversity_loader is None or encoder is None:
+            return {}
+        self.model.eval()
+        features = []
+        targets = []
+        for batch in self.diversity_loader:
+            batch = self._move_batch(batch)
+            features.append(
+                encoder(
+                    input_ids=batch["input_ids"],
+                    attention_mask=batch["attention_mask"],
+                ).detach().cpu()
+            )
+            targets.append(batch["label"].detach().cpu())
+        stacked = torch.cat(features)
+        labels = torch.cat(targets)
+        stats = representation_separation(stacked, labels, n_classes=len(self.labels))
+        stats["subset_size"] = int(stacked.shape[0])
+        stats["input_sensitive"] = bool(stats["feature_dimension_std_mean"] > 1e-3)
+        return stats
 
     def fit(self, train_loader: DataLoader, val_loader: DataLoader, epochs: int) -> list[dict[str, Any]]:
         best_path = self.checkpoint_dir / f"{self.model_name}_best.pt"
@@ -191,7 +262,12 @@ class Trainer:
         run_start = time.perf_counter()
         for epoch in range(1, epochs + 1):
             epoch_start = time.perf_counter()
-            learning_rate = float(self.optimizer.param_groups[0]["lr"])
+            learning_rates = [float(group["lr"]) for group in self.optimizer.param_groups]
+            named_learning_rates = {
+                str(group["name"]): float(group["lr"])
+                for group in self.optimizer.param_groups
+                if "name" in group
+            }
             train_metrics = self.train_epoch(train_loader)
             val_metrics = self.evaluate(val_loader)
             row = {
@@ -200,10 +276,24 @@ class Trainer:
                 "val": val_metrics,
                 "train_metric_scope": "online_minibatch_outputs_before_optimizer_update",
                 "validation_metric_scope": "post_epoch_eval_mode",
-                "learning_rate": learning_rate,
-                "epoch_duration_seconds": time.perf_counter() - epoch_start,
+                "learning_rate": learning_rates[0],
+                "learning_rates": learning_rates,
             }
+            if named_learning_rates:
+                row["named_learning_rates"] = named_learning_rates
+            if self.diversity_loader is not None:
+                row["representation_diversity"] = self.representation_diversity()
+            row["epoch_duration_seconds"] = time.perf_counter() - epoch_start
             history.append(row)
+            if "loss" in train_metrics and "loss" in val_metrics:
+                print(
+                    f"epoch {epoch}: train_loss={train_metrics['loss']:.4f} "
+                    f"val_loss={val_metrics['loss']:.4f} val_accuracy={val_metrics['accuracy']:.4f} "
+                    f"val_macro_f1={val_metrics['f1_macro']:.4f} "
+                    f"predictions={val_metrics.get('predicted_class_distribution')} "
+                    f"collapse={val_metrics.get('single_class_prediction_collapse')}",
+                    flush=True,
+                )
             if self.scheduler is not None:
                 self.scheduler.step(float(val_metrics["f1_macro"]))
             # Strict greater-than keeps the earliest epoch when validation scores tie.

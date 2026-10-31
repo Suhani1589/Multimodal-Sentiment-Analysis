@@ -30,13 +30,16 @@ class MultimodalSentimentModel(nn.Module):
         image_dim: Optional[int] = None,
         pretrained_text: bool = True,
         text_encoder_config: Optional[dict[str, Any]] = None,
+        pooling: str = "pooler",
     ) -> None:
         super().__init__()
+        self.pooling = pooling
         self.text_encoder = text_encoder or TransformerTextEncoder(
             text_model_name,
             freeze_encoder=freeze_text_encoder,
             pretrained=pretrained_text,
             model_config=text_encoder_config,
+            pooling=pooling,
         )
         self.image_encoder = image_encoder or CNNImageEncoder(
             image_backbone, pretrained=pretrained_image, freeze_encoder=freeze_image_encoder
